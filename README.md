@@ -44,7 +44,7 @@ vorrei questo | chtěl/a bych toto | nakupování
 quanto costa? | kolik to stojí? | nakupování
 posso pagare con la carta? | mohu zaplatit kartou? | nakupování
 ho bisogno di aiuto | potřebuji pomoc | cestování
-``` 
+```
 
 ChatGPT můžeš napsat: „Připrav 20 italských A0 slov a frází na téma restaurace, ve formátu italština | čeština | kategorie, jeden řádek na kartičku, bez tabulky a bez číslování.“ Prázdné řádky a značky kódového bloku se ignorují. Oddělovač `|` není možné použít uvnitř textu. Maxima: 300 znaků na slovo/překlad, 60 na kategorii.
 

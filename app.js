@@ -1,54 +1,497 @@
-import {STORAGE_KEY,clean,normalize,pairKey,makeCard,initialState,parseImport,judge,pickCard,choicesFor,dayKey,validateState} from './core.js';
-const storageKey=STORAGE_KEY+':'+new URL('./',location.href).pathname;
-const $=id=>document.getElementById(id);const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let state, storageBlocked=false;
-try {const saved=localStorage.getItem(storageKey);state=saved?validateState(JSON.parse(saved)):initialState();}catch(e){state={version:1,cards:[],history:[]};storageBlocked=true;}
-let mode='flash', current=null, actualMode='flash', direction='it-cs', revealed=false,result=null,submitted=null,session=0;
-function notice(message){$('notice').textContent=message;$('notice').hidden=false;}
-function commit(next){if(storageBlocked){notice('Uložená data nejdou načíst. Pro ochranu původních dat jsou změny pozastavené. Obnov platnou zálohu v Přehledu.');return false;}try{localStorage.setItem(storageKey,JSON.stringify(next));state=next;return true;}catch(e){notice('Data se nepodařilo uložit. Zkontroluj volné místo a povolení úložiště prohlížeče.');return false;}}
-if(storageBlocked)notice('Uložená data nejdou načíst. Původní obsah nebyl přepsán. Obnov zálohu v Přehledu.');else commit(state);
-function categories(){return [...new Set(state.cards.map(c=>c.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'cs'));}
-function updateCategories(){const opts='<option value="">Všechny kategorie</option><option value="__none">Bez kategorie</option>'+categories().map(c=>`<option value="category:${escape(c)}">${escape(c)}</option>`).join('');for(const id of ['practice-category','list-category']){const old=$(id).value;$(id).innerHTML=opts;if([...$(id).options].some(o=>o.value===old))$(id).value=old;}$('categories').innerHTML=categories().map(c=>`<option value="${escape(c)}"></option>`).join('');}
-function filtered(category){return state.cards.filter(c=>!category||(category==='__none'?!c.category:c.category===category.slice(9)));}
-function fields(){return direction==='it-cs'?['it','cs']:['cs','it'];}
-function nextCard(){current=pickCard(filtered($('practice-category').value),current?.id);revealed=false;result=null;submitted=null;actualMode=mode==='mix'?['flash','write','choice'][Math.floor(Math.random()*3)]:mode;renderStudy();}
-function renderStudy(){const cards=filtered($('practice-category').value);$('study-count').textContent=`${cards.length} ${cards.length===1?'kartička':'kartiček'} ve výběru`;$('session-count').textContent=`V této sérii: ${session}`;$('rating').hidden=!revealed||!current;
- if(!current){$('study').innerHTML='<h2>Žádné kartičky</h2><p>Přidej kartičku nebo vlož blok z ChatGPT.</p><button class="primary" id="empty-add">Přidat kartičky</button>';$('empty-add').onclick=()=>showTab('cards');return;}
- const [from,to]=fields();const labels={flash:'Kartička',write:'Psaní',choice:'Výběr z možností'};
- let body=`<p class="eyebrow">${escape(current.category||'bez kategorie')} · ${labels[actualMode]}</p><span class="small">${from==='it'?'ITALŠTINA':'ČEŠTINA'}</span><h2 class="word" lang="${from==='it'?'it':'cs'}">${escape(current[from])}</h2>`;
- if(revealed){body+=`<div class="answer-feedback"><p>${result==='correct'?'Správně':result==='almost'?'Skoro správně – překlep':result==='wrong'?'Nesprávně. Správný překlad:':'Správný překlad'}</p>${submitted!==null&&result!=='correct'?`<p class="small">Zadaná odpověď: ${escape(submitted)}</p>`:''}<strong lang="${to==='it'?'it':'cs'}">${escape(current[to])}</strong></div>`;}
- else if(actualMode==='flash')body+='<button id="reveal" class="primary">Ukázat překlad</button>';
- else if(actualMode==='write')body+=`<form id="answer-form"><label for="answer" class="sr-answer">${to==='it'?'Napiš italský překlad':'Napiš český překlad'}</label><input id="answer" required maxlength="300" autocomplete="off" autocapitalize="none" spellcheck="false" lang="${to==='it'?'it':'cs'}"><button class="primary full">Zkontrolovat</button></form><button id="give-up" style="margin-top:12px">Nevím, ukázat překlad</button>`;
- else {const options=choicesFor(current,state.cards,to);if(options.length<2){actualMode='flash';notice('Pro výběr jsou potřeba alespoň dva různé překlady. Teď použijeme kartičku.');renderStudy();return;}body+='<div class="choice-options">'+options.map((x,i)=>`<button data-choice="${i}">${escape(x)}</button>`).join('')+'</div>';}
- $('study').innerHTML=body;
- if($('reveal'))$('reveal').onclick=()=>reveal(null);
- if($('give-up'))$('give-up').onclick=()=>reveal('wrong');
- if($('answer-form'))$('answer-form').onsubmit=e=>{e.preventDefault();if(clean($('answer').value))reveal(judge($('answer').value,current[to]),$('answer').value);};
- $('study').querySelectorAll('[data-choice]').forEach(b=>b.onclick=()=>reveal(normalize(b.textContent)===normalize(current[to])?'correct':'wrong'));
+import {
+  STORAGE_KEY,
+  clean,
+  normalize,
+  pairKey,
+  makeCard,
+  initialState,
+  parseImport,
+  judge,
+  pickCard,
+  choicesFor,
+  dayKey,
+  validateState,
+} from "./core.js";
+const storageKey = STORAGE_KEY + ":" + new URL("./", location.href).pathname;
+const $ = (id) => document.getElementById(id);
+const escape = (s) =>
+  String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+let state,
+  storageBlocked = false;
+try {
+  const saved = localStorage.getItem(storageKey);
+  state = saved ? validateState(JSON.parse(saved)) : initialState();
+} catch (e) {
+  state = { version: 1, cards: [], history: [] };
+  storageBlocked = true;
 }
-function reveal(value,answer=null){submitted=answer;if(revealed)return;revealed=true;result=value;renderStudy();$('rating').querySelector('button').focus({preventScroll:true});}
-$('rating').querySelectorAll('[data-rate]').forEach(b=>b.onclick=()=>{if(!current||!revealed)return;const rating=b.dataset.rate;const time=Date.now();const next={...state,cards:state.cards.map(c=>c.id===current.id?{...c,rating,reviews:c.reviews+1,lastReviewed:time}:c),history:[...state.history,{cardId:current.id,time,rating,result,mode:actualMode,direction}]};if(commit(next)){session++;renderStats();nextCard();}});
-function showTab(tab){document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==tab);document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);if(b.dataset.tab===tab)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});if(tab==='cards')renderCards();if(tab==='stats')renderStats();}
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
-document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;document.querySelectorAll('[data-mode]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',String(x===b));});nextCard();});
-document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
-$('open-settings').onclick=()=>$('settings-dialog').showModal();
-$('direction').onchange=()=>{direction=$('direction').value;nextCard();};$('practice-category').onchange=nextCard;
-function renderCards(){const q=normalize($('search').value);const cards=filtered($('list-category').value).filter(c=>normalize(c.it+' '+c.cs).includes(q));$('list-count').textContent=`${cards.length} z ${state.cards.length} kartiček`;$('card-list').innerHTML=cards.length?cards.map(c=>`<article class="collection-card"><h3 lang="it">${escape(c.it)}</h3><p>${escape(c.cs)}</p><div class="card-bottom"><span class="badge">${escape(c.category||'bez kategorie')}</span><div class="card-actions"><button data-edit="${escape(c.id)}" aria-label="Upravit ${escape(c.it)}">Upravit</button><button data-delete="${escape(c.id)}" aria-label="Smazat ${escape(c.it)}">Smazat</button></div></div></article>`).join(''):'<div class="empty">Žádné kartičky. Změň filtr nebo přidej nové slovo.</div>';}
-$('search').oninput=renderCards;$('list-category').onchange=renderCards;
-function edit(card){$('edit-title').textContent=card?'Upravit kartičku':'Nová kartička';$('edit-id').value=card?.id||'';$('edit-it').value=card?.it||'';$('edit-cs').value=card?.cs||'';$('edit-category').value=card?.category||'';$('edit-dialog').showModal();$('edit-it').focus();}
-$('add-card').onclick=()=>edit();$('card-list').onclick=e=>{const editButton=e.target.closest('[data-edit]'),del=e.target.closest('[data-delete]');if(editButton)edit(state.cards.find(c=>c.id===editButton.dataset.edit));if(del){const card=state.cards.find(c=>c.id===del.dataset.delete);if(confirm(`Smazat kartičku „${card.it}“?`)){if(commit({...state,cards:state.cards.filter(c=>c.id!==card.id)})){refresh();notice('Kartička byla smazána.');}}}};
-$('edit-form').onsubmit=e=>{e.preventDefault();const it=clean($('edit-it').value),cs=clean($('edit-cs').value),category=clean($('edit-category').value),id=$('edit-id').value;if(!it||!cs)return notice('Vyplň italský text i český překlad.');if(state.cards.some(c=>c.id!==id&&pairKey(c)===pairKey({it,cs})))return notice('Tato dvojice už ve sbírce je.');const cards=id?state.cards.map(c=>c.id===id?{...c,it,cs,category,rating:'new',reviews:0,lastReviewed:0}:c):[...state.cards,makeCard(it,cs,category)];if(commit({...state,cards})){$('edit-dialog').close();refresh();notice(id?'Kartička upravena. Její hodnocení začíná znovu.':'Nová kartička je ve sbírce.');}};
-document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$('open-import').onclick=()=>{$('import-result').textContent='';$('import-dialog').showModal();};
-$('do-import').onclick=()=>{const parsed=parseImport($('import-text').value,state.cards);if(!parsed.cards.length&&!parsed.errors.length&&!parsed.duplicates)return $('import-result').textContent='Nejdřív vlož řádky s kartičkami.';if(parsed.cards.length&&!commit({...state,cards:[...state.cards,...parsed.cards]}))return;refresh();$('import-result').textContent=`Přidáno: ${parsed.cards.length}. Duplikáty přeskočeny: ${parsed.duplicates}.${parsed.errors.length?' Chybné řádky: '+parsed.errors.join(', ')+'. Oprav je a znovu importuj.':''}`;if(!parsed.errors.length)$('import-text').value='';};
-function renderStats(){const history=state.history;const today=history.filter(h=>dayKey(h.time)===dayKey()).length;$('today-count').textContent=today;const good=state.cards.filter(c=>c.rating==='good').length;const answered=history.filter(h=>h.result!==null);const success=answered.length?Math.round(answered.filter(h=>h.result==='correct').length/answered.length*100)+' %':'—';$('stat-grid').innerHTML=[[state.cards.length,'kartiček ve sbírce'],[good,'kartiček už umíš'],[history.length,'odpovědí celkem'],[success,'úspěšnost odpovědí']].map(([n,t])=>`<div class="stat"><strong>${n}</strong><span>${t}</span></div>`).join('');const bins=[['good','Umím','#153c32'],['hard','Těžké','#bf881e'],['again','Nevím','#bc543b'],['new','Nové','#d9e2de']].map(([key,label,color])=>({label,color,count:state.cards.filter(c=>c.rating===key).length}));$('progress').innerHTML='<div class="progress-track" aria-label="Rozložení hodnocení">'+bins.map(x=>`<span style="width:${state.cards.length?x.count/state.cards.length*100:0}%;background:${x.color}"></span>`).join('')+'</div><div class="legend">'+bins.map(x=>`<span>${x.label}: <strong>${x.count}</strong></span>`).join('')+'</div>';}
-function refresh(){updateCategories();renderCards();renderStats();nextCard();}
-$('export').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`italiano-zaloha-${dayKey()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-$('restore').onchange=async()=>{const file=$('restore').files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Záloha je příliš velká (max. 30 MB).');const data=validateState(JSON.parse(await file.text()));if(!confirm(`Obnovit ${data.cards.length} kartiček ze zálohy? Nahradí se celá současná sbírka i pokrok.`))return;const oldBlocked=storageBlocked;storageBlocked=false;if(commit(data)){refresh();notice('Záloha byla obnovena.');}else storageBlocked=oldBlocked;}catch(e){notice('Zálohu nelze obnovit: '+e.message);}finally{$('restore').value='';}};
-let offlineReady=false;
-function connection(){ $('connection').textContent=!navigator.onLine?'Bez internetu':offlineReady?'Připraveno offline':'Na tomto zařízení';}
-window.addEventListener('online',connection);window.addEventListener('offline',connection);
-if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js',{scope:'./'}).then(async()=>{const reg=await navigator.serviceWorker.ready;offlineReady=true;connection();$('offline-detail').textContent='Aplikace je připravená pro použití bez internetu.';reg.addEventListener('updatefound',()=>{const worker=reg.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)notice('Je dostupná nová verze. Zavři všechny panely i aplikaci a znovu ji otevři. Kartičky zůstanou uložené.');});});}).catch(()=>{$('offline-detail').textContent='Offline podpora není aktivní. Otevři aplikaci přes HTTPS nebo localhost.';});}else $('offline-detail').textContent='Tento prohlížeč nepodporuje offline instalaci.';
-let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('install').hidden=false;});$('install').onclick=async()=>{if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('install').hidden=true;}};
-refresh();connection();
+let mode = "flash",
+  current = null,
+  actualMode = "flash",
+  direction = "it-cs",
+  revealed = false,
+  result = null,
+  submitted = null,
+  session = 0;
+function notice(message) {
+  $("notice").textContent = message;
+  $("notice").hidden = false;
+}
+function commit(next) {
+  if (storageBlocked) {
+    notice(
+      "Uložená data nejdou načíst. Pro ochranu původních dat jsou změny pozastavené. Obnov platnou zálohu v Přehledu.",
+    );
+    return false;
+  }
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    state = next;
+    return true;
+  } catch (e) {
+    notice(
+      "Data se nepodařilo uložit. Zkontroluj volné místo a povolení úložiště prohlížeče.",
+    );
+    return false;
+  }
+}
+if (storageBlocked)
+  notice(
+    "Uložená data nejdou načíst. Původní obsah nebyl přepsán. Obnov zálohu v Přehledu.",
+  );
+else commit(state);
+function categories() {
+  return [...new Set(state.cards.map((c) => c.category).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, "cs"),
+  );
+}
+function updateCategories() {
+  const opts =
+    '<option value="">Všechny kategorie</option><option value="__none">Bez kategorie</option>' +
+    categories()
+      .map((c) => `<option value="category:${escape(c)}">${escape(c)}</option>`)
+      .join("");
+  for (const id of ["practice-category", "list-category"]) {
+    const old = $(id).value;
+    $(id).innerHTML = opts;
+    if ([...$(id).options].some((o) => o.value === old)) $(id).value = old;
+  }
+  $("categories").innerHTML = categories()
+    .map((c) => `<option value="${escape(c)}"></option>`)
+    .join("");
+}
+function filtered(category) {
+  return state.cards.filter(
+    (c) =>
+      !category ||
+      (category === "__none" ? !c.category : c.category === category.slice(9)),
+  );
+}
+function fields() {
+  return direction === "it-cs" ? ["it", "cs"] : ["cs", "it"];
+}
+function nextCard() {
+  current = pickCard(filtered($("practice-category").value), current?.id);
+  revealed = false;
+  result = null;
+  submitted = null;
+  actualMode =
+    mode === "mix"
+      ? ["flash", "write", "choice"][Math.floor(Math.random() * 3)]
+      : mode;
+  renderStudy();
+}
+function renderStudy() {
+  const cards = filtered($("practice-category").value);
+  $("study-count").textContent =
+    `${cards.length} ${cards.length === 1 ? "kartička" : "kartiček"} ve výběru`;
+  $("session-count").textContent = `V této sérii: ${session}`;
+  $("rating").hidden = !revealed || !current;
+  if (!current) {
+    $("study").innerHTML =
+      '<h2>Žádné kartičky</h2><p>Přidej kartičku nebo vlož blok z ChatGPT.</p><button class="primary" id="empty-add">Přidat kartičky</button>';
+    $("empty-add").onclick = () => showTab("cards");
+    return;
+  }
+  const [from, to] = fields();
+  const labels = {
+    flash: "Kartička",
+    write: "Psaní",
+    choice: "Výběr z možností",
+  };
+  let body = `<p class="eyebrow">${escape(current.category || "bez kategorie")} · ${labels[actualMode]}</p><span class="small">${from === "it" ? "ITALŠTINA" : "ČEŠTINA"}</span><h2 class="word" lang="${from === "it" ? "it" : "cs"}">${escape(current[from])}</h2>`;
+  if (revealed) {
+    body += `<div class="answer-feedback"><p>${result === "correct" ? "Správně" : result === "almost" ? "Skoro správně – překlep" : result === "wrong" ? "Nesprávně. Správný překlad:" : "Správný překlad"}</p>${submitted !== null && result !== "correct" ? `<p class="small">Zadaná odpověď: ${escape(submitted)}</p>` : ""}<strong lang="${to === "it" ? "it" : "cs"}">${escape(current[to])}</strong></div>`;
+  } else if (actualMode === "flash")
+    body += '<button id="reveal" class="primary">Ukázat překlad</button>';
+  else if (actualMode === "write")
+    body += `<form id="answer-form"><label for="answer" class="sr-answer">${to === "it" ? "Napiš italský překlad" : "Napiš český překlad"}</label><input id="answer" required maxlength="300" autocomplete="off" autocapitalize="none" spellcheck="false" lang="${to === "it" ? "it" : "cs"}"><button class="primary full">Zkontrolovat</button></form><button id="give-up" style="margin-top:12px">Nevím, ukázat překlad</button>`;
+  else {
+    const options = choicesFor(current, state.cards, to);
+    if (options.length < 2) {
+      actualMode = "flash";
+      notice(
+        "Pro výběr jsou potřeba alespoň dva různé překlady. Teď použijeme kartičku.",
+      );
+      renderStudy();
+      return;
+    }
+    body +=
+      '<div class="choice-options">' +
+      options
+        .map((x, i) => `<button data-choice="${i}">${escape(x)}</button>`)
+        .join("") +
+      "</div>";
+  }
+  $("study").innerHTML = body;
+  if ($("reveal")) $("reveal").onclick = () => reveal(null);
+  if ($("give-up")) $("give-up").onclick = () => reveal("wrong");
+  if ($("answer-form"))
+    $("answer-form").onsubmit = (e) => {
+      e.preventDefault();
+      if (clean($("answer").value))
+        reveal(judge($("answer").value, current[to]), $("answer").value);
+    };
+  $("study")
+    .querySelectorAll("[data-choice]")
+    .forEach(
+      (b) =>
+        (b.onclick = () =>
+          reveal(
+            normalize(b.textContent) === normalize(current[to])
+              ? "correct"
+              : "wrong",
+          )),
+    );
+}
+function reveal(value, answer = null) {
+  submitted = answer;
+  if (revealed) return;
+  revealed = true;
+  result = value;
+  renderStudy();
+  $("rating").querySelector("button").focus({ preventScroll: true });
+}
+$("rating")
+  .querySelectorAll("[data-rate]")
+  .forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (!current || !revealed) return;
+        const rating = b.dataset.rate;
+        const time = Date.now();
+        const next = {
+          ...state,
+          cards: state.cards.map((c) =>
+            c.id === current.id
+              ? { ...c, rating, reviews: c.reviews + 1, lastReviewed: time }
+              : c,
+          ),
+          history: [
+            ...state.history,
+            {
+              cardId: current.id,
+              time,
+              rating,
+              result,
+              mode: actualMode,
+              direction,
+            },
+          ],
+        };
+        if (commit(next)) {
+          session++;
+          renderStats();
+          nextCard();
+        }
+      }),
+  );
+function showTab(tab) {
+  document.querySelectorAll(".page").forEach((p) => (p.hidden = p.id !== tab));
+  document.querySelectorAll("[data-tab]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
+  if (tab === "cards") renderCards();
+  if (tab === "stats") renderStats();
+}
+document
+  .querySelectorAll("[data-tab]")
+  .forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+document.querySelectorAll("[data-mode]").forEach(
+  (b) =>
+    (b.onclick = () => {
+      mode = b.dataset.mode;
+      document.querySelectorAll("[data-mode]").forEach((x) => {
+        x.classList.toggle("selected", x === b);
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      nextCard();
+    }),
+);
+document
+  .querySelectorAll("[data-mode]")
+  .forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.mode === mode)),
+  );
+$("open-settings").onclick = () => $("settings-dialog").showModal();
+$("direction").onchange = () => {
+  direction = $("direction").value;
+  nextCard();
+};
+$("practice-category").onchange = nextCard;
+function renderCards() {
+  const q = normalize($("search").value);
+  const cards = filtered($("list-category").value).filter((c) =>
+    normalize(c.it + " " + c.cs).includes(q),
+  );
+  $("list-count").textContent =
+    `${cards.length} z ${state.cards.length} kartiček`;
+  $("card-list").innerHTML = cards.length
+    ? cards
+        .map(
+          (c) =>
+            `<article class="collection-card"><h3 lang="it">${escape(c.it)}</h3><p>${escape(c.cs)}</p><div class="card-bottom"><span class="badge">${escape(c.category || "bez kategorie")}</span><div class="card-actions"><button data-edit="${escape(c.id)}" aria-label="Upravit ${escape(c.it)}">Upravit</button><button data-delete="${escape(c.id)}" aria-label="Smazat ${escape(c.it)}">Smazat</button></div></div></article>`,
+        )
+        .join("")
+    : '<div class="empty">Žádné kartičky. Změň filtr nebo přidej nové slovo.</div>';
+}
+$("search").oninput = renderCards;
+$("list-category").onchange = renderCards;
+function edit(card) {
+  $("edit-title").textContent = card ? "Upravit kartičku" : "Nová kartička";
+  $("edit-id").value = card?.id || "";
+  $("edit-it").value = card?.it || "";
+  $("edit-cs").value = card?.cs || "";
+  $("edit-category").value = card?.category || "";
+  $("edit-dialog").showModal();
+  $("edit-it").focus();
+}
+$("add-card").onclick = () => edit();
+$("card-list").onclick = (e) => {
+  const editButton = e.target.closest("[data-edit]"),
+    del = e.target.closest("[data-delete]");
+  if (editButton)
+    edit(state.cards.find((c) => c.id === editButton.dataset.edit));
+  if (del) {
+    const card = state.cards.find((c) => c.id === del.dataset.delete);
+    if (confirm(`Smazat kartičku „${card.it}“?`)) {
+      if (
+        commit({ ...state, cards: state.cards.filter((c) => c.id !== card.id) })
+      ) {
+        refresh();
+        notice("Kartička byla smazána.");
+      }
+    }
+  }
+};
+$("edit-form").onsubmit = (e) => {
+  e.preventDefault();
+  const it = clean($("edit-it").value),
+    cs = clean($("edit-cs").value),
+    category = clean($("edit-category").value),
+    id = $("edit-id").value;
+  if (!it || !cs) return notice("Vyplň italský text i český překlad.");
+  if (
+    state.cards.some((c) => c.id !== id && pairKey(c) === pairKey({ it, cs }))
+  )
+    return notice("Tato dvojice už ve sbírce je.");
+  const cards = id
+    ? state.cards.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              it,
+              cs,
+              category,
+              rating: "new",
+              reviews: 0,
+              lastReviewed: 0,
+            }
+          : c,
+      )
+    : [...state.cards, makeCard(it, cs, category)];
+  if (commit({ ...state, cards })) {
+    $("edit-dialog").close();
+    refresh();
+    notice(
+      id
+        ? "Kartička upravena. Její hodnocení začíná znovu."
+        : "Nová kartička je ve sbírce.",
+    );
+  }
+};
+document
+  .querySelectorAll("[data-close]")
+  .forEach((b) => (b.onclick = () => $(b.dataset.close).close()));
+$("open-import").onclick = () => {
+  $("import-result").textContent = "";
+  $("import-dialog").showModal();
+};
+$("do-import").onclick = () => {
+  const parsed = parseImport($("import-text").value, state.cards);
+  if (!parsed.cards.length && !parsed.errors.length && !parsed.duplicates)
+    return ($("import-result").textContent =
+      "Nejdřív vlož řádky s kartičkami.");
+  if (
+    parsed.cards.length &&
+    !commit({ ...state, cards: [...state.cards, ...parsed.cards] })
+  )
+    return;
+  refresh();
+  $("import-result").textContent =
+    `Přidáno: ${parsed.cards.length}. Duplikáty přeskočeny: ${parsed.duplicates}.${parsed.errors.length ? " Chybné řádky: " + parsed.errors.join(", ") + ". Oprav je a znovu importuj." : ""}`;
+  if (!parsed.errors.length) $("import-text").value = "";
+};
+function renderStats() {
+  const history = state.history;
+  const today = history.filter((h) => dayKey(h.time) === dayKey()).length;
+  $("today-count").textContent = today;
+  const good = state.cards.filter((c) => c.rating === "good").length;
+  const answered = history.filter((h) => h.result !== null);
+  const success = answered.length
+    ? Math.round(
+        (answered.filter((h) => h.result === "correct").length /
+          answered.length) *
+          100,
+      ) + " %"
+    : "—";
+  $("stat-grid").innerHTML = [
+    [state.cards.length, "kartiček ve sbírce"],
+    [good, "kartiček už umíš"],
+    [history.length, "odpovědí celkem"],
+    [success, "úspěšnost odpovědí"],
+  ]
+    .map(
+      ([n, t]) =>
+        `<div class="stat"><strong>${n}</strong><span>${t}</span></div>`,
+    )
+    .join("");
+  const bins = [
+    ["good", "Umím", "#153c32"],
+    ["hard", "Těžké", "#bf881e"],
+    ["again", "Nevím", "#bc543b"],
+    ["new", "Nové", "#d9e2de"],
+  ].map(([key, label, color]) => ({
+    label,
+    color,
+    count: state.cards.filter((c) => c.rating === key).length,
+  }));
+  $("progress").innerHTML =
+    '<div class="progress-track" aria-label="Rozložení hodnocení">' +
+    bins
+      .map(
+        (x) =>
+          `<span style="width:${state.cards.length ? (x.count / state.cards.length) * 100 : 0}%;background:${x.color}"></span>`,
+      )
+      .join("") +
+    '</div><div class="legend">' +
+    bins
+      .map((x) => `<span>${x.label}: <strong>${x.count}</strong></span>`)
+      .join("") +
+    "</div>";
+}
+function refresh() {
+  updateCategories();
+  renderCards();
+  renderStats();
+  nextCard();
+}
+$("export").onclick = () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `italiano-zaloha-${dayKey()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+$("restore").onchange = async () => {
+  const file = $("restore").files[0];
+  if (!file) return;
+  try {
+    if (file.size > 30 * 1024 * 1024)
+      throw Error("Záloha je příliš velká (max. 30 MB).");
+    const data = validateState(JSON.parse(await file.text()));
+    if (
+      !confirm(
+        `Obnovit ${data.cards.length} kartiček ze zálohy? Nahradí se celá současná sbírka i pokrok.`,
+      )
+    )
+      return;
+    const oldBlocked = storageBlocked;
+    storageBlocked = false;
+    if (commit(data)) {
+      refresh();
+      notice("Záloha byla obnovena.");
+    } else storageBlocked = oldBlocked;
+  } catch (e) {
+    notice("Zálohu nelze obnovit: " + e.message);
+  } finally {
+    $("restore").value = "";
+  }
+};
+let offlineReady = false;
+function connection() {
+  $("connection").textContent = !navigator.onLine
+    ? "Bez internetu"
+    : offlineReady
+      ? "Připraveno offline"
+      : "Na tomto zařízení";
+}
+window.addEventListener("online", connection);
+window.addEventListener("offline", connection);
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .register("./sw.js", { scope: "./" })
+    .then(async () => {
+      const reg = await navigator.serviceWorker.ready;
+      offlineReady = true;
+      connection();
+      $("offline-detail").textContent =
+        "Aplikace je připravená pro použití bez internetu.";
+      reg.addEventListener("updatefound", () => {
+        const worker = reg.installing;
+        worker?.addEventListener("statechange", () => {
+          if (
+            worker.state === "installed" &&
+            navigator.serviceWorker.controller
+          )
+            notice(
+              "Je dostupná nová verze. Zavři všechny panely i aplikaci a znovu ji otevři. Kartičky zůstanou uložené.",
+            );
+        });
+      });
+    })
+    .catch(() => {
+      $("offline-detail").textContent =
+        "Offline podpora není aktivní. Otevři aplikaci přes HTTPS nebo localhost.";
+    });
+} else
+  $("offline-detail").textContent =
+    "Tento prohlížeč nepodporuje offline instalaci.";
+let installPrompt;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $("install").hidden = false;
+});
+$("install").onclick = async () => {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    $("install").hidden = true;
+  }
+};
+refresh();
+connection();
